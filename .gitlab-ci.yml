@@ -1,0 +1,107 @@
+variables:
+  ADMIN_SOLUTION: "AdminPortal/MOE_System.sln"
+  ESERVICE_SOLUTION: "EServicePortal/MOE_System.EService.sln"
+  AZURE_APP_NAME: "moe-admin"
+  AZURE_APP_NAME_E_SERVICE: "moe-e-service"
+  RESOURCE_GROUP: "moe-system-test"
+  GITHUB_REPO_BE_HTTPS: "github.com/tranminhhien3124027717/moe-be.git"
+
+stages:
+  - build
+  - test
+  - secret-detection
+  - sync_to_github
+  - deploy
+
+include:
+  - template: Security/Secret-Detection.gitlab-ci.yml
+
+default:
+  tags:
+    - moe-kain
+
+# ==================== BUILD & TEST STAGES ===================
+
+secret_detection:
+  stage: secret-detection
+  script:
+    - Write-Host "Skipping Linux-based Secret Detection on Windows Runner..."
+  artifacts:
+    reports:
+      secret_detection: []
+  allow_failure: true
+
+dummy_test:
+  stage: test
+  script:
+    - Write-Host "No unit tests defined yet. Skipping logic check..."
+    - Write-Host "Dotnet version check:"
+    - dotnet --version
+
+build_admin:
+  stage: build
+  script:
+    - Write-Host "Restoring and Publishing Admin Portal..."
+    - dotnet restore $env:ADMIN_SOLUTION
+    - dotnet publish AdminPortal/src/MOE_System.API/MOE_System.API.csproj -c Release -o admin_publish
+  artifacts:
+    name: "admin-package"
+    paths:
+      - admin_publish/
+    expire_in: 1 hour
+
+build_eservice:
+  stage: build
+  script:
+    - Write-Host "Restoring and Publishing EService Portal..."
+    - dotnet restore $env:ESERVICE_SOLUTION
+    - dotnet publish EServicePortal/src/MOE_System.EService.API/MOE_System.EService.API.csproj -c Release -o eservice_publish
+  artifacts:
+    name: "e-service-package"
+    paths:
+      - eservice_publish/
+    expire_in: 1 hour
+
+# ==================== SYNC TO GITHUB ===================
+
+sync_to_github:
+  stage: sync_to_github
+  variables:
+    GIT_STRATEGY: clone
+    GIT_DEPTH: "0" 
+  script:
+    - |
+      $ErrorActionPreference = "Stop"
+      
+      Write-Host "--- 1. Resetting Git Config ---"
+      git config --global credential.helper ""
+      git config user.email "gitlab-runner@moe.com"
+      git config user.name "GitLab Runner Sync"
+
+      Write-Host "--- 2. Creating Clean History (Orphan) ---"
+      # Tạo một nhánh tạm thời 'temp_deploy' không có lịch sử từ các commit cũ
+      git checkout --orphan temp_deploy
+      
+      if (Test-Path "admin_publish") { Remove-Item -Recurse -Force "admin_publish" }
+      if (Test-Path "eservice_publish") { Remove-Item -Recurse -Force "eservice_publish" }
+      # Thêm tất cả file hiện có vào nhánh mới này
+      git add -A
+      
+      # Tạo một commit duy nhất đại diện cho code hiện tại
+      $CommitMsg = "Sync from GitLab: " + (Get-Date -Format "yyyy-MM-dd HH:mm")
+      git commit -m $CommitMsg
+
+      Write-Host "--- 3. Pushing Clean History to GitHub ---"
+      $CleanRepo = $env:GITHUB_REPO_BE_HTTPS -replace "https://", ""
+      $githubUrl = "https://x-access-token:$($env:GITHUB_TOKEN)@$CleanRepo"
+      
+      # Push force từ nhánh tạm 'temp_deploy' vào nhánh 'main' trên GitHub
+      git push $githubUrl "temp_deploy:refs/heads/main" --force --atomic -v
+      
+      # Quay lại nhánh gốc để không làm hỏng trạng thái của Runner (tùy chọn)
+      git checkout main
+      
+      Write-Host "Successfully synced a clean history to GitHub!"
+  when: manual
+  only:
+    - main

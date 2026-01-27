@@ -1,0 +1,106 @@
+using System.ComponentModel.DataAnnotations;
+using System.Text.RegularExpressions;
+
+namespace MOE_System.Application.DTOs.AccountHolder.Request
+{
+    public class CreateAccountHolderRequest : IValidatableObject
+    {
+        [Required(ErrorMessage = "NRIC is required.")]
+        public required string NRIC { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Full name is required.")]
+        [StringLength(100, MinimumLength = 1, ErrorMessage = "First name must be between 1 and 100 characters.")]
+        public required string FullName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Date of birth is required.")]
+        public required DateTime DateOfBirth { get; set; } = default;
+
+        [Required(ErrorMessage = "Email is required.")]
+        [EmailAddress(ErrorMessage = "Invalid email format.")]
+        [StringLength(256, ErrorMessage = "Email must not exceed 256 characters.")]
+        public required string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Contact number is required.")]
+        [Phone(ErrorMessage = "Invalid phone number format.")]
+        public required string ContactNumber { get; set; }
+
+        [Required(ErrorMessage = "Registered address is required.")]
+        public required string RegisteredAddress { get; set; }
+
+        [Required(ErrorMessage = "Mailing address is required.")]
+        public required string MailingAddress { get; set; }
+
+        [Required(ErrorMessage = "Residential status is required.")]
+        public required string ResidentialStatus { get; set; }
+
+        public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        {
+            if (!string.IsNullOrWhiteSpace(NRIC))
+            {
+                var nricPattern = @"^[STFGM]\d{7}[A-Z]$";
+                var upperNric = NRIC.ToUpper();
+
+                if (!Regex.IsMatch(upperNric, nricPattern))
+                {
+                    yield return new ValidationResult(
+                        "NRIC must be in valid Singapore format (e.g., S1234567A).",
+                        new[] { nameof(NRIC) });
+                }
+
+                if (NRIC.Length != 9)
+                {
+                    yield return new ValidationResult(
+                        "NRIC must be exactly 9 characters long.",
+                        new[] { nameof(NRIC) });
+                }
+
+                if (DateOfBirth.Year < 2000 && (upperNric.StartsWith("T") || upperNric.StartsWith("M")))
+                {
+                    yield return new ValidationResult(
+                        "NRIC starting with 'T'is only for individuals born in or after the year 2000.",
+                        new[] { nameof(NRIC), nameof(DateOfBirth) });
+                }
+
+                if (DateOfBirth.Year >= 2000 && upperNric.StartsWith("S"))
+                {
+                    yield return new ValidationResult(
+                        "NRIC starting with 'S' is only for individuals born before the year 2000.",
+                        new[] { nameof(NRIC), nameof(DateOfBirth) });
+                }
+            }
+
+            if (DateOfBirth >= DateTime.Today)
+            {
+                yield return new ValidationResult(
+                    "Date of birth must be in the past.",
+                    new[] { nameof(DateOfBirth) });
+            }
+
+            if (DateOfBirth > DateTime.Today.AddYears(-1))
+            {
+                yield return new ValidationResult(
+                    "Account holder must be at least 1 year old.",
+                    new[] { nameof(DateOfBirth) });
+            }
+
+            if (DateOfBirth < DateTime.Today.AddYears(-150))
+            {
+                yield return new ValidationResult(
+                    "Date of birth is invalid.",
+                    new[] { nameof(DateOfBirth) });
+            }
+
+            if (!string.IsNullOrWhiteSpace(ContactNumber))
+            {
+                var cleanedNumber = Regex.Replace(ContactNumber, @"[\s\-\(\)\+]", "");
+
+                if (!Regex.IsMatch(cleanedNumber, @"^([689]\d{7}|65[689]\d{7}|\+65[689]\d{7})$"))
+                {
+                    yield return new ValidationResult(
+                        "Contact number must be a valid Singapore number (e.g., 81234567, 91234567, 61234567, +6581234567).",
+                        new[] { nameof(ContactNumber) });
+                }
+            }
+        }
+    }
+}
